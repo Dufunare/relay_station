@@ -713,6 +713,51 @@ int main(int argc, char* argv[])
         require(pumpUntil([&legacy] { return legacy.bytesAvailable() > 0; }), "legacy reply absent");
         require(legacy.readAll() == "0,{5},RobotMode();", "legacy reply changed");
     });
+    runner.run("runtime legacy ServoP forwards exact Touch command bytes to motion port", [] {
+        RuntimeHarness harness; harness.start();
+        QTcpSocket legacy;
+        legacy.connectToHost(QHostAddress::LocalHost, harness.runtime.legacyServerPort());
+        require(pumpUntil([&legacy] { return legacy.state() == QAbstractSocket::ConnectedState; }),
+                "legacy connect failed");
+
+        const QByteArray first("ServoP(250.000,100.000,200.000,150,0,90)");
+        legacy.write("30003|Servo");
+        QCoreApplication::processEvents();
+        require(harness.motionPeer->bytesAvailable() == 0, "partial ServoP forwarded early");
+        legacy.write("P(250.000,100.000,200.000,150,0,90)\\n");
+        require(pumpUntil([&harness, &first] {
+            return harness.motionPeer->bytesAvailable() >= first.size();
+        }), "ServoP was not forwarded to 30003");
+        require(harness.motionPeer->readAll() == first,
+                "ServoP bytes were modified (prefix/newline should not reach robot)");
+
+        const QByteArray second("ServoP(251.000,99.500,199.000,150,0,90)");
+        const QByteArray third("ServoP(252.000,99.000,198.000,150,0,90)");
+        legacy.write("30003|" + second + "\\n30003|" + third + "\\n");
+        require(pumpUntil([&harness, &second, &third] {
+            return harness.motionPeer->bytesAvailable() >= second.size() + third.size();
+        }), "coalesced ServoP stream was not forwarded");
+        require(harness.motionPeer->readAll() == second + third,
+                "coalesced ServoP commands were reordered or changed");
+        require(legacy.bytesAvailable() == 0,
+                "ServoP incorrectly produced a synthetic controller reply");
+    });
+    runner.run("runtime legacy ServoP rejects dashboard target port", [] {
+        RuntimeHarness harness; harness.start();
+        QTcpSocket legacy;
+        legacy.connectToHost(QHostAddress::LocalHost, harness.runtime.legacyServerPort());
+        require(pumpUntil([&legacy] { return legacy.state() == QAbstractSocket::ConnectedState; }),
+                "legacy connect failed");
+        legacy.write("29999|ServoP(250.000,100.000,200.000,150,0,90)\\n");
+        require(pumpUntil([&legacy] { return legacy.bytesAvailable() > 0; }),
+                "invalid ServoP target was not rejected");
+        require(legacy.readAll() ==
+                    "ERROR|invalid_motion_port|ServoP requires target port 30003;",
+                "wrong ServoP port rejection response");
+        require(harness.dashboardPeer->bytesAvailable() == 0 &&
+                    harness.motionPeer->bytesAvailable() == 0,
+                "misrouted ServoP reached a robot socket");
+    });
     runner.run("runtime v2 command reply preserves correlation and controller bytes", [] {
         RuntimeHarness harness; harness.start();
         std::unique_ptr<QTcpSocket> client(harness.connectV2());
