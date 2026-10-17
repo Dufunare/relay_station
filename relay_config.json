@@ -1,0 +1,13 @@
+{
+  "gripper": {
+    "installed": false,
+    "configured": false
+  },
+  "v2_motion": {
+    "production_enabled": false
+  },
+  "video_fragmentation": {
+    "production_enabled": false,
+    "prototype_udp_port": 8892
+  }
+}
