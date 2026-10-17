@@ -436,8 +436,11 @@ void RelayRuntime::routeLegacyCommand(const LegacyCommand& command, qint64 recei
         queueLegacyBytes(QStringLiteral("ERROR|%1|%2;").arg(error.code, error.detail).toUtf8());
         return;
     }
-    if (name.compare(QStringLiteral("ServoP"), Qt::CaseInsensitive) == 0) {
-        queueLegacyBytes("ERROR|servop_not_production_enabled|ServoP is offline-prepared only;");
+    // Legacy Touch clients stream ServoP without expecting a controller reply.
+    // Forward it only to the robot's motion port; keep the v2 motion gate unchanged.
+    if (name.compare(QStringLiteral("ServoP"), Qt::CaseInsensitive) == 0 &&
+        command.targetPort != kMotionPort) {
+        queueLegacyBytes("ERROR|invalid_motion_port|ServoP requires target port 30003;");
         return;
     }
     QTcpSocket* socket = command.targetPort == kDashboardPort ? &m_dashboardSocket : &m_motionSocket;
