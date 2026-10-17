@@ -724,7 +724,7 @@ int main(int argc, char* argv[])
         legacy.write("30003|Servo");
         QCoreApplication::processEvents();
         require(harness.motionPeer->bytesAvailable() == 0, "partial ServoP forwarded early");
-        legacy.write("P(250.000,100.000,200.000,150,0,90)\\n");
+        legacy.write("P(250.000,100.000,200.000,150,0,90)\n");
         require(pumpUntil([&harness, &first] {
             return harness.motionPeer->bytesAvailable() >= first.size();
         }), "ServoP was not forwarded to 30003");
@@ -733,7 +733,7 @@ int main(int argc, char* argv[])
 
         const QByteArray second("ServoP(251.000,99.500,199.000,150,0,90)");
         const QByteArray third("ServoP(252.000,99.000,198.000,150,0,90)");
-        legacy.write("30003|" + second + "\\n30003|" + third + "\\n");
+        legacy.write("30003|" + second + "\n30003|" + third + "\n");
         require(pumpUntil([&harness, &second, &third] {
             return harness.motionPeer->bytesAvailable() >= second.size() + third.size();
         }), "coalesced ServoP stream was not forwarded");
@@ -748,7 +748,7 @@ int main(int argc, char* argv[])
         legacy.connectToHost(QHostAddress::LocalHost, harness.runtime.legacyServerPort());
         require(pumpUntil([&legacy] { return legacy.state() == QAbstractSocket::ConnectedState; }),
                 "legacy connect failed");
-        legacy.write("29999|ServoP(250.000,100.000,200.000,150,0,90)\\n");
+        legacy.write("29999|ServoP(250.000,100.000,200.000,150,0,90)\n");
         require(pumpUntil([&legacy] { return legacy.bytesAvailable() > 0; }),
                 "invalid ServoP target was not rejected");
         require(legacy.readAll() ==
