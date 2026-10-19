@@ -676,7 +676,7 @@ void RelayStation::ensureVideoThread()
             ? "QLabel { background-color: #00FF00; border-radius: 8px; border: 1px solid #00AA00; }"
             : "QLabel { background-color: #FF0000; border-radius: 8px; border: 1px solid #AA0000; }");
         ui.txt_state_log->appendPlainText(open
-            ? ">> [Video Stream] Camera opened."
+            ? ">> [Video Stream] Camera opened; OpenCV feature overlay active."
             : ">> [Error] Camera open failed; no video payload was produced.");
         syncStreamDiagnostics();
     });
