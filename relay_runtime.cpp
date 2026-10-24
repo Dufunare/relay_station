@@ -324,6 +324,8 @@ void RelayRuntime::replaceV2Client(QTcpSocket* socket)
     m_v2Output.clear();
     m_latestV2StateFrame.reset();
     m_latestV2StatusFrame.reset();
+    m_v2RobotGate.reset();
+    m_haveV2ReportedRobotState=false;
     m_actionGate.beginSession(m_v2SessionId);
     m_v2Client = socket;
     socket->setParent(this);
@@ -373,6 +375,8 @@ void RelayRuntime::closeV2Client()
 
 void RelayRuntime::invalidateV2Session()
 {
+    m_v2RobotGate.reset();
+    m_haveV2ReportedRobotState=false;
     if (!m_v2SessionId.isEmpty()) {
         m_replyLedger.clearSession(m_v2SessionId);
     }
@@ -539,7 +543,12 @@ void RelayRuntime::handleHello(const QJsonObject& object)
                    {QStringLiteral("session_id"), m_v2SessionId}});
     publishRelayStatus();
     const RobotStateSnapshot state = m_stateStore.latest();
-    if (state.valid) publishRobotState(state);
+    if(state.valid) {
+        publishRobotState(state);
+        m_lastV2ReportedRobotState=state;
+        m_haveV2ReportedRobotState=true;
+        m_v2RobotGate.allow(steadyNowNs(),true);
+    }
 }
 
 void RelayRuntime::handleV2Command(const QJsonObject& object, qint64 receivedNs)
@@ -827,12 +836,35 @@ void RelayRuntime::readFeedback()
         emitFeedbackErrorLimited(error);
     }
     for (const RobotStateSnapshot& state : result.states) {
+        // The state store keeps EVERY valid 30004 update; the v2 network
+        // only needs the latest snapshot at ~50Hz. Safety state changes
+        // must be forwarded immediately, even inside a busy feedback batch.
         m_stateStore.publish(state);
-        m_stateStaleTimer.start();
-        emit robotStateAvailable();
-        publishRobotState(state);
+        const bool urgent=!m_haveV2ReportedRobotState ||
+            state.errorStatus!=m_lastV2ReportedRobotState.errorStatus ||
+            state.enableStatus!=m_lastV2ReportedRobotState.enableStatus ||
+            state.dragStatus!=m_lastV2ReportedRobotState.dragStatus ||
+            state.jogStatus!=m_lastV2ReportedRobotState.jogStatus ||
+            state.pauseCmdFlag!=m_lastV2ReportedRobotState.pauseCmdFlag ||
+            state.robotMode!=m_lastV2ReportedRobotState.robotMode ||
+            state.runningStatus!=m_lastV2ReportedRobotState.runningStatus ||
+            state.user!=m_lastV2ReportedRobotState.user ||
+            state.tool!=m_lastV2ReportedRobotState.tool;
+        if(m_v2Client && m_v2Handshaken && m_pushRobotState) {
+            if(m_v2RobotGate.allow(steadyNowNs(),urgent)) {
+                publishRobotState(state);
+                m_lastV2ReportedRobotState=state;
+                m_haveV2ReportedRobotState=true;
+            } else {
+                ++m_diagnostics.v2StateRateLimited;
+            }
+        }
     }
     if (!result.states.isEmpty()) {
+        // One GUI notification and timer update per socket read, not per
+        // high-rate robot frame, to preserve 200ms heartbeat scheduling.
+        m_stateStaleTimer.start();
+        emit robotStateAvailable();
         const bool ready = relayReady(relayStatusInput());
         if (ready != m_lastReady) {
             publishRelayStatus();
@@ -844,8 +876,8 @@ void RelayRuntime::readFeedback()
 
 void RelayRuntime::publishRobotState(const RobotStateSnapshot& state)
 {
-    if (m_v2Client && m_v2Handshaken && m_pushRobotState) {
-        queueV2Object(robotStateJson(state, m_v2SessionId), true, false);
+    if(m_v2Client && m_v2Handshaken && m_pushRobotState) {
+        queueV2Object(robotStateJson(state,m_v2SessionId),true,false);
     }
 }
 
