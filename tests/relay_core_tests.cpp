@@ -559,9 +559,12 @@ int main(int argc, char* argv[])
         const auto selected = gate.takeForWrite(12);
         require(decision.replacedOlderPending && selected->command == "MovL(2)", "latest target not retained");
     });
-    runner.run("ServoP never waits for an ordinary controller reply", [] {
+    runner.run("online servo streaming never waits in reply ledger", [] {
         require(!relay::commandExpectsControllerReply("ServoP(1,2,3,4,5,6)"), "ServoP waits for reply");
+        require(!relay::commandExpectsControllerReply("ServoJ(1,2,3,4,5,6)"), "ServoJ must be no-wait");
         require(relay::commandExpectsControllerReply("MovL(1,2,3,4,5,6)"), "MovL reply disabled");
+        require(relay::commandExpectsControllerReply("InverseSolution(1,2,3,4,5,6,0,0,1,{0,0,0,0,0,0})"),
+                "inverse solution must await a controller reply");
     });
     runner.run("EnableRobot uses 30000 ms reply timeout", [] {
         require(relay::robotReplyTimeoutNs("EnableRobot(0.5,0,0,0)") ==
