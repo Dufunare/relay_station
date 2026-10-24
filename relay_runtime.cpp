@@ -219,6 +219,7 @@ void RelayRuntime::stop()
         return;
     }
     m_stopping = true;
+    m_relayUiStateGate.reset();
     ++m_diagnostics.stopCount;
     m_legacyServer.close();
     m_v2Server.close();
@@ -877,7 +878,8 @@ void RelayRuntime::readFeedback()
         // One GUI notification and timer update per socket read, not per
         // high-rate robot frame, to preserve 200ms heartbeat scheduling.
         m_stateStaleTimer.start();
-        emit robotStateAvailable();
+        if(m_relayUiStateGate.allow(steadyNowNs()))
+            emit robotStateAvailable();
         const bool ready = relayReady(relayStatusInput());
         if (ready != m_lastReady) {
             publishRelayStatus();
