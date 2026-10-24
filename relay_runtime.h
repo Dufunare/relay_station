@@ -167,6 +167,7 @@ private:
 
     std::optional<QByteArray> m_latestV2StateFrame;
     V2RobotStatePublishGate m_v2RobotGate;
+    V2RobotStatePublishGate m_relayUiStateGate;
     RobotStateSnapshot m_lastV2ReportedRobotState;
     bool m_haveV2ReportedRobotState = false;
     std::optional<QByteArray> m_latestV2StatusFrame;
