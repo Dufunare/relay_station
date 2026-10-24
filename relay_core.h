@@ -26,6 +26,26 @@ constexpr qsizetype kMaxRobotReplyBytes = 64 * 1024;
 constexpr qsizetype kMaxRobotReplyBufferBytes = 256 * 1024;
 constexpr quint32 kMaxV2BodyBytes = 1024 * 1024;
 constexpr qint64 kStateFreshnessNs = 500 * 1000 * 1000LL;
+
+// Rate-control the read-only v2 robot_state stream independently from the
+// full-rate 30004 parser/state store. 50Hz is above the 33Hz teleop loop.
+// A safety-significant mode/flag transition bypasses the rate limit.
+class V2RobotStatePublishGate {
+public:
+    static constexpr qint64 kIntervalNs=20 * 1000 * 1000LL;
+    bool allow(qint64 nowNs,bool stateTransition=false) {
+        if(nowNs<=0)return false;
+        if(stateTransition || m_lastSentNs==0 || nowNs<m_lastSentNs ||
+           nowNs-m_lastSentNs>=kIntervalNs) {
+            m_lastSentNs=nowNs;
+            return true;
+        }
+        return false;
+    }
+    void reset() {m_lastSentNs=0;}
+private:
+    qint64 m_lastSentNs=0;
+};
 constexpr qint64 kIncompleteLegacyTimeoutNs = 2000 * 1000 * 1000LL;
 constexpr qint64 kRobotReplyTimeoutNs = 3000 * 1000 * 1000LL;
 constexpr qint64 kEnableRobotReplyTimeoutNs = 30000 * 1000 * 1000LL;
