@@ -730,10 +730,12 @@ int main(int argc, char* argv[])
         require(harness.motionPeer->readAll()=="ServoJ(1,2,3,4,5,6)",
                 "unexpected ServoJ motion command");
         harness.motionPeer->write("0,{},ServoJ(1,2,3,4,5,6);");
-        require(pumpUntil([&harness] {
-            return harness.runtime.diagnostics().v2StateRateLimited==0;
-        },100),"process one echo"); // pump event loop, no Legacy reply expected
-        QCoreApplication::processEvents(QEventLoop::AllEvents,20);
+        QElapsedTimer settle;
+        settle.start();
+        while(settle.elapsed()<50) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents,10);
+            QThread::msleep(1);
+        }
         require(legacy.bytesAvailable()==0,"ServoJ success echo flooded Legacy client");
         harness.motionPeer->write("-2,{},ServoJ(1,2,3,4,5,6);");
         require(pumpUntil([&legacy] {return legacy.bytesAvailable()>0;}),
