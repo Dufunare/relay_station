@@ -716,6 +716,32 @@ int main(int argc, char* argv[])
         require(pumpUntil([&legacy] { return legacy.bytesAvailable() > 0; }), "legacy reply absent");
         require(legacy.readAll() == "0,{5},RobotMode();", "legacy reply changed");
     });
+    runner.run("runtime ServoJ echo is nonblocking, but errors reach Legacy operator", [] {
+        RuntimeHarness harness; harness.start();
+        QTcpSocket legacy;
+        legacy.connectToHost(QHostAddress::LocalHost,harness.runtime.legacyServerPort());
+        require(pumpUntil([&legacy] {
+            return legacy.state()==QAbstractSocket::ConnectedState;
+        }),"legacy connect failed");
+        legacy.write("30003|ServoJ(1,2,3,4,5,6)");
+        require(pumpUntil([&harness]{
+            return harness.motionPeer->bytesAvailable()>=static_cast<qint64>(strlen("ServoJ(1,2,3,4,5,6)"));
+        }),"ServoJ was not routed");
+        require(harness.motionPeer->readAll()=="ServoJ(1,2,3,4,5,6)",
+                "unexpected ServoJ motion command");
+        harness.motionPeer->write("0,{},ServoJ(1,2,3,4,5,6);");
+        require(pumpUntil([&harness] {
+            return harness.runtime.diagnostics().v2StateRateLimited==0;
+        },100),"process one echo"); // pump event loop, no Legacy reply expected
+        QCoreApplication::processEvents(QEventLoop::AllEvents,20);
+        require(legacy.bytesAvailable()==0,"ServoJ success echo flooded Legacy client");
+        harness.motionPeer->write("-2,{},ServoJ(1,2,3,4,5,6);");
+        require(pumpUntil([&legacy] {return legacy.bytesAvailable()>0;}),
+                "ServoJ error did not reach control client");
+        require(legacy.readAll().startsWith("-2,{},ServoJ("),
+                "ServoJ error payload was lost or changed");
+    });
+
     runner.run("runtime v2 command reply preserves correlation and controller bytes", [] {
         RuntimeHarness harness; harness.start();
         std::unique_ptr<QTcpSocket> client(harness.connectV2());
