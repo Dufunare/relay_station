@@ -168,7 +168,13 @@ QString commandName(const QByteArray& command)
 
 bool commandExpectsControllerReply(const QByteArray& command)
 {
-    return commandName(command).compare(QStringLiteral("ServoP"), Qt::CaseInsensitive) != 0;
+    // Both ServoP and ServoJ are high-rate online servo commands:
+    // neither waits on the relay's command/response ledger. Some firmware
+    // still sends ServoJ success echoes; these are handled asynchronously
+    // and must not be allowed to consume a queued MovL response.
+    const QString name=commandName(command);
+    return name.compare(QStringLiteral("ServoP"),Qt::CaseInsensitive)!=0 &&
+           name.compare(QStringLiteral("ServoJ"),Qt::CaseInsensitive)!=0;
 }
 
 qint64 robotReplyTimeoutNs(const QByteArray& command)

@@ -559,9 +559,12 @@ int main(int argc, char* argv[])
         const auto selected = gate.takeForWrite(12);
         require(decision.replacedOlderPending && selected->command == "MovL(2)", "latest target not retained");
     });
-    runner.run("ServoP never waits for an ordinary controller reply", [] {
+    runner.run("online servo streaming never waits in reply ledger", [] {
         require(!relay::commandExpectsControllerReply("ServoP(1,2,3,4,5,6)"), "ServoP waits for reply");
+        require(!relay::commandExpectsControllerReply("ServoJ(1,2,3,4,5,6)"), "ServoJ must be no-wait");
         require(relay::commandExpectsControllerReply("MovL(1,2,3,4,5,6)"), "MovL reply disabled");
+        require(relay::commandExpectsControllerReply("InverseSolution(1,2,3,4,5,6,0,0,1,{0,0,0,0,0,0})"),
+                "inverse solution must await a controller reply");
     });
     runner.run("EnableRobot uses 30000 ms reply timeout", [] {
         require(relay::robotReplyTimeoutNs("EnableRobot(0.5,0,0,0)") ==
@@ -713,6 +716,34 @@ int main(int argc, char* argv[])
         require(pumpUntil([&legacy] { return legacy.bytesAvailable() > 0; }), "legacy reply absent");
         require(legacy.readAll() == "0,{5},RobotMode();", "legacy reply changed");
     });
+    runner.run("runtime ServoJ echo is nonblocking, but errors reach Legacy operator", [] {
+        RuntimeHarness harness; harness.start();
+        QTcpSocket legacy;
+        legacy.connectToHost(QHostAddress::LocalHost,harness.runtime.legacyServerPort());
+        require(pumpUntil([&legacy] {
+            return legacy.state()==QAbstractSocket::ConnectedState;
+        }),"legacy connect failed");
+        legacy.write("30003|ServoJ(1,2,3,4,5,6)");
+        require(pumpUntil([&harness]{
+            return harness.motionPeer->bytesAvailable()>=static_cast<qint64>(strlen("ServoJ(1,2,3,4,5,6)"));
+        }),"ServoJ was not routed");
+        require(harness.motionPeer->readAll()=="ServoJ(1,2,3,4,5,6)",
+                "unexpected ServoJ motion command");
+        harness.motionPeer->write("0,{},ServoJ(1,2,3,4,5,6);");
+        QElapsedTimer settle;
+        settle.start();
+        while(settle.elapsed()<50) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents,10);
+            QThread::msleep(1);
+        }
+        require(legacy.bytesAvailable()==0,"ServoJ success echo flooded Legacy client");
+        harness.motionPeer->write("-2,{},ServoJ(1,2,3,4,5,6);");
+        require(pumpUntil([&legacy] {return legacy.bytesAvailable()>0;}),
+                "ServoJ error did not reach control client");
+        require(legacy.readAll().startsWith("-2,{},ServoJ("),
+                "ServoJ error payload was lost or changed");
+    });
+
     runner.run("runtime v2 command reply preserves correlation and controller bytes", [] {
         RuntimeHarness harness; harness.start();
         std::unique_ptr<QTcpSocket> client(harness.connectV2());
@@ -863,6 +894,24 @@ int main(int argc, char* argv[])
         }), "new feedback frame not accepted");
         require(harness.runtime.latestState().connectionGeneration >= 2,
                 "feedback generation did not advance");
+    });
+
+    runner.run("v2 robot stream rate limiter preserves 200ms status heartbeat capacity", [] {
+        relay::V2RobotStatePublishGate gate;
+        const qint64 t0=Q_INT64_C(1000000000);
+        require(gate.allow(t0),"first valid state must be published");
+        int published=1;
+        for(int ms=1;ms<=1000;++ms) {
+            if(gate.allow(t0+static_cast<qint64>(ms)*1000000LL))++published;
+        }
+        require(published==51,"1000Hz feedback should publish no more than 50Hz");
+        require(gate.allow(t0+1001000000LL,true),
+                "safety-significant mode/error transition must bypass budget");
+        require(!gate.allow(t0+1002000000LL),
+                "nonurgent state must not immediately follow urgent update");
+        gate.reset();
+        require(gate.allow(t0+1),"new session must publish its first state");
+        require(!gate.allow(0),"invalid monotonic time must fail closed");
     });
 
     return runner.finish();
