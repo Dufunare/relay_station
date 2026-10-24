@@ -715,6 +715,19 @@ void RelayRuntime::handleRobotReplies(int targetPort,
         return;
     }
     for (const QByteArray& reply : result.replies) {
+        // ServoJ may emit an unsolicited success echo on this firmware.
+        // There is no in-flight ledger entry for ServoJ; consume success
+        // without logging every 33ms. Forward nonzero controller errors
+        // to the Legacy 8888 client so active teleop can stop.
+        if(targetPort==kMotionPort &&
+           reply.contains("ServoJ(")) {
+            if(replyControllerCode(reply)!=0) {
+                emit logMessage(QStringLiteral(">> ServoJ robot error: %1")
+                                    .arg(QString::fromUtf8(reply.left(160))));
+                queueLegacyBytes(reply);
+            }
+            continue;
+        }
         if (replyControllerCode(reply) == std::numeric_limits<int>::min()) {
             emit logMessage(QStringLiteral(">> Robot %1 invalid/orphan reply discarded: %2")
                                 .arg(targetPort)
