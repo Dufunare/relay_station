@@ -938,6 +938,7 @@ QJsonObject RelayRuntime::enrichedRelayStatus() const
     status.insert(QStringLiteral("v2_received_frames"),
                   QString::number(m_diagnostics.v2ReceivedFrames));
     status.insert(QStringLiteral("v2_sent_frames"), QString::number(m_diagnostics.v2SentFrames));
+    status.insert(QStringLiteral("v2_state_rate_limited"), QString::number(m_diagnostics.v2StateRateLimited));
     status.insert(QStringLiteral("v2_state_overwrites"),
                   QString::number(m_diagnostics.v2StateOverwrites));
     status.insert(QStringLiteral("v2_send_rejects"),
