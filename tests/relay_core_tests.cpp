@@ -865,5 +865,23 @@ int main(int argc, char* argv[])
                 "feedback generation did not advance");
     });
 
+    runner.run("v2 robot stream rate limiter preserves 200ms status heartbeat capacity", [] {
+        relay::V2RobotStatePublishGate gate;
+        const qint64 t0=Q_INT64_C(1000000000);
+        require(gate.allow(t0),"first valid state must be published");
+        int published=1;
+        for(int ms=1;ms<=1000;++ms) {
+            if(gate.allow(t0+static_cast<qint64>(ms)*1000000LL))++published;
+        }
+        require(published==51,"1000Hz feedback should publish no more than 50Hz");
+        require(gate.allow(t0+1001000000LL,true),
+                "safety-significant mode/error transition must bypass budget");
+        require(!gate.allow(t0+1002000000LL),
+                "nonurgent state must not immediately follow urgent update");
+        gate.reset();
+        require(gate.allow(t0+1),"new session must publish its first state");
+        require(!gate.allow(0),"invalid monotonic time must fail closed");
+    });
+
     return runner.finish();
 }
