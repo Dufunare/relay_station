@@ -26,6 +26,26 @@ constexpr qsizetype kMaxRobotReplyBytes = 64 * 1024;
 constexpr qsizetype kMaxRobotReplyBufferBytes = 256 * 1024;
 constexpr quint32 kMaxV2BodyBytes = 1024 * 1024;
 constexpr qint64 kStateFreshnessNs = 500 * 1000 * 1000LL;
+
+// 8891 is a read-only state stream, not an archive of every raw 30004
+// feedback frame. Publish position at up to 50 Hz, higher than the 33 Hz
+// physical teleop loop. Critical state changes bypass the rate limit.
+class V2RobotStatePublishGate {
+public:
+    static constexpr qint64 kIntervalNs=20 * 1000 * 1000LL;
+    bool allow(qint64 nowNs,bool criticalChange=false) {
+        if(nowNs<=0)return false;
+        if(criticalChange || m_lastNs==0 || nowNs<m_lastNs ||
+           nowNs-m_lastNs>=kIntervalNs) {
+            m_lastNs=nowNs;
+            return true;
+        }
+        return false;
+    }
+    void reset() {m_lastNs=0;}
+private:
+    qint64 m_lastNs=0;
+};
 constexpr qint64 kIncompleteLegacyTimeoutNs = 2000 * 1000 * 1000LL;
 constexpr qint64 kRobotReplyTimeoutNs = 3000 * 1000 * 1000LL;
 constexpr qint64 kEnableRobotReplyTimeoutNs = 30000 * 1000 * 1000LL;
