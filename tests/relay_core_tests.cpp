@@ -727,6 +727,18 @@ int main(int argc, char* argv[])
         QCoreApplication::processEvents(QEventLoop::AllEvents,20);
         require(legacy.bytesAvailable()==0,"ServoP must not wait for command response");
         require(harness.runtime.diagnostics().robotWriteRejects==0,"motion forwarding rejected");
+        harness.motionPeer->write("0,{},ServoP(-150,-300,280,150,0,90);");
+        QElapsedTimer settle;settle.start();
+        while(settle.elapsed()<50) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents,10);
+            QThread::msleep(1);
+        }
+        require(legacy.bytesAvailable()==0,"ServoP success echo must not appear on Legacy");
+        harness.motionPeer->write("-1,{},ServoP(-150,-300,280,150,0,90);");
+        require(pumpUntil([&legacy] {return legacy.bytesAvailable()>0;}),
+                "ServoP negative controller reply must reach operator");
+        require(legacy.readAll().startsWith("-1,{},ServoP("),
+                "ServoP controller error reply corrupted");
         legacy.write("29999|"+servo);
         require(pumpUntil([&legacy] {return legacy.bytesAvailable()>0;}),
                 "wrong-port ServoP not rejected");
