@@ -27,6 +27,7 @@ struct RuntimeDiagnostics {
     quint64 v2ReceivedFrames = 0;
     quint64 v2SentFrames = 0;
     quint64 v2StateOverwrites = 0;
+    quint64 v2StateRateLimited = 0;
     quint64 v2SendRejects = 0;
     quint64 stopCount = 0;
     quint64 sessionSwitches = 0;
@@ -165,6 +166,10 @@ private:
     ShortWriteBuffer m_motionOutput{kMaxSocketOutputBytes};
 
     std::optional<QByteArray> m_latestV2StateFrame;
+    V2RobotStatePublishGate m_v2RobotGate;
+    V2RobotStatePublishGate m_relayUiStateGate;
+    RobotStateSnapshot m_lastV2ReportedRobotState;
+    bool m_haveV2ReportedRobotState=false;
     std::optional<QByteArray> m_latestV2StatusFrame;
     RuntimeDiagnostics m_diagnostics;
     StreamDiagnostics m_streamDiagnostics;
