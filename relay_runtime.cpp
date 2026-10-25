@@ -720,6 +720,18 @@ void RelayRuntime::handleRobotReplies(int targetPort,
         return;
     }
     for (const QByteArray& reply : result.replies) {
+        // ServoP is a no-wait online command. Some firmware replies anyway.
+        // Ignore benign echoes, but surface controller errors to the 8888
+        // control client so it can stop immediately; do not corrupt FIFO
+        // reply matching for other commands.
+        if(targetPort==kMotionPort && reply.contains("ServoP(")) {
+            if(replyControllerCode(reply)!=0) {
+                queueLegacyBytes(reply);
+                emit logMessage(QStringLiteral(">> ServoP controller error: %1")
+                                .arg(QString::fromUtf8(reply.left(160))));
+            }
+            continue;
+        }
         if (replyControllerCode(reply) == std::numeric_limits<int>::min()) {
             emit logMessage(QStringLiteral(">> Robot %1 invalid/orphan reply discarded: %2")
                                 .arg(targetPort)
