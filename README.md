@@ -92,6 +92,14 @@ OpenCV 处理线程。处理后的 JPEG 会直接叠加以下可视信息，再�
 原始帧和编码帧队列都只保留最新一帧。处理速度不足或网络发送变慢时会丢弃旧帧，
 不会让视频延迟持续累积。为控制单个 UDP 数据报大小，JPEG 会在需要时自动降低质量。
 
+## Touch ServoP 控制兼容
+
+最新 OpenCV 主分支沿用视频/图像功能，同时已恢复 **8888 Legacy → 30003 ServoP** 的在线目标转发；其他命令及 `v2_motion_path_disabled` 策略不变。正常 ServoP 成功回显不会写入等待应答队列；ServoP 错误回显会转发给 Legacy 客户端，以便控制面板立即退出实体遥控。
+
+为避免 30004 高频状态推送延迟 8891 的 200ms `relay_status` 心跳，机器人完整反馈仍在中转站内部高速解析，向 8891 的常规 `robot_state` 快照限至约 50Hz，Mode/Enable/Error/Drag/Jog/Pause/Running/User/Tool 状态变化则立即推送。OpenCV 视频处理功能保留，未改变其采集逻辑。
+
+配套控制端和详细离合/重新按下规则见 [TouchControlPanelSolution PR #3](https://github.com/Dufunare/TouchControlPanelSolution/pull/3) 中的 `Docs/SERVOP_RELATIVE_MODE.md`。恢复这一通路是明确授权的实验室实机用途，**不是对任何远程用户开放安全认证**。外部网络必须隔离，物理急停不可被软件 Stop/ResetRobot 替代。
+
 ## 安全边界
 
 运行程序不等于允许机器人运动。当前 **Legacy 8888 → 30003 的 ServoP 已恢复转发**（仅供明确授权、现场有物理急停的 Touch 遥控）；ServoP 按在线流处理，不等待普通应答。v2 运动、TVF2 和未配置夹爪仍保持生产禁用。网络 Stop/ResetRobot 不等于物理急停，现场控制端必须对按键释放、失联、机器人反馈失效等边界作处理。真机操作前请阅读 `docs\TouchVLA_Relay_Status.md` 的现场验证清单。
