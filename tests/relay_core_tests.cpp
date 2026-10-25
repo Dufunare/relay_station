@@ -713,6 +713,26 @@ int main(int argc, char* argv[])
         require(pumpUntil([&legacy] { return legacy.bytesAvailable() > 0; }), "legacy reply absent");
         require(legacy.readAll() == "0,{5},RobotMode();", "legacy reply changed");
     });
+    runner.run("runtime allows legacy ServoP on motion port without enabling v2 motion", [] {
+        RuntimeHarness harness; harness.start();
+        QTcpSocket legacy;
+        legacy.connectToHost(QHostAddress::LocalHost,harness.runtime.legacyServerPort());
+        require(pumpUntil([&legacy] {return legacy.state()==QAbstractSocket::ConnectedState;}),
+                "legacy connect");
+        const QByteArray servo="ServoP(-150,-300,280,150,0,90)";
+        legacy.write("30003|"+servo);
+        require(pumpUntil([&harness] {return harness.motionPeer->bytesAvailable()>0;}),
+                "ServoP did not reach motion port");
+        require(harness.motionPeer->readAll()==servo,"ServoP changed in relay");
+        QCoreApplication::processEvents(QEventLoop::AllEvents,20);
+        require(legacy.bytesAvailable()==0,"ServoP must not wait for command response");
+        require(harness.runtime.diagnostics().robotWriteRejects==0,"motion forwarding rejected");
+        legacy.write("29999|"+servo);
+        require(pumpUntil([&legacy] {return legacy.bytesAvailable()>0;}),
+                "wrong-port ServoP not rejected");
+        require(legacy.readAll().startsWith("ERROR|servop_requires_30003"),
+                "ServoP accepted on dashboard port");
+    });
     runner.run("runtime v2 command reply preserves correlation and controller bytes", [] {
         RuntimeHarness harness; harness.start();
         std::unique_ptr<QTcpSocket> client(harness.connectV2());
