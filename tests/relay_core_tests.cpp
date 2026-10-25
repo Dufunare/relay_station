@@ -885,5 +885,23 @@ int main(int argc, char* argv[])
                 "feedback generation did not advance");
     });
 
+    runner.run("v2 rate gate caps high-frequency feedback and forwards safety transitions", [] {
+        relay::V2RobotStatePublishGate gate;
+        const qint64 t0=1000000000LL;
+        require(gate.allow(t0),"first feedback must publish");
+        int count=1;
+        for(int ms=1;ms<=1000;++ms) {
+            if(gate.allow(t0+static_cast<qint64>(ms)*1000000LL))++count;
+        }
+        require(count==51,"1000Hz feedback must not flood v2 beyond 50Hz");
+        require(gate.allow(t0+1001000000LL,true),
+                "robot mode/error/enable transitions bypass rate cap");
+        require(!gate.allow(t0+1002000000LL),
+                "ordinary frame must not follow urgent frame immediately");
+        gate.reset();
+        require(gate.allow(t0+1),"new session must publish first state");
+        require(!gate.allow(0),"invalid monotonic timestamp must fail closed");
+    });
+
     return runner.finish();
 }
