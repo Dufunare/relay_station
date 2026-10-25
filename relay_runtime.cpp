@@ -436,8 +436,12 @@ void RelayRuntime::routeLegacyCommand(const LegacyCommand& command, qint64 recei
         queueLegacyBytes(QStringLiteral("ERROR|%1|%2;").arg(error.code, error.detail).toUtf8());
         return;
     }
-    if (name.compare(QStringLiteral("ServoP"), Qt::CaseInsensitive) == 0) {
-        queueLegacyBytes("ERROR|servop_not_production_enabled|ServoP is offline-prepared only;");
+    // Restored the original 8888 -> 30003 ServoP path for the
+    // manually armed Touch teleop controller. It is a non-blocking stream,
+    // not an ordinary queued motion/reply. Do NOT enable v2 motion here.
+    if (name.compare(QStringLiteral("ServoP"), Qt::CaseInsensitive) == 0 &&
+        command.targetPort != kMotionPort) {
+        queueLegacyBytes("ERROR|servop_requires_30003|ServoP must use motion port;");
         return;
     }
     QTcpSocket* socket = command.targetPort == kDashboardPort ? &m_dashboardSocket : &m_motionSocket;
