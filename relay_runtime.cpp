@@ -219,6 +219,7 @@ void RelayRuntime::stop()
         return;
     }
     m_stopping = true;
+    m_relayUiStateGate.reset();
     ++m_diagnostics.stopCount;
     m_legacyServer.close();
     m_v2Server.close();
@@ -324,6 +325,8 @@ void RelayRuntime::replaceV2Client(QTcpSocket* socket)
     m_v2Output.clear();
     m_latestV2StateFrame.reset();
     m_latestV2StatusFrame.reset();
+    m_v2RobotGate.reset();
+    m_haveV2ReportedRobotState=false;
     m_actionGate.beginSession(m_v2SessionId);
     m_v2Client = socket;
     socket->setParent(this);
@@ -373,6 +376,8 @@ void RelayRuntime::closeV2Client()
 
 void RelayRuntime::invalidateV2Session()
 {
+    m_v2RobotGate.reset();
+    m_haveV2ReportedRobotState=false;
     if (!m_v2SessionId.isEmpty()) {
         m_replyLedger.clearSession(m_v2SessionId);
     }
@@ -543,7 +548,12 @@ void RelayRuntime::handleHello(const QJsonObject& object)
                    {QStringLiteral("session_id"), m_v2SessionId}});
     publishRelayStatus();
     const RobotStateSnapshot state = m_stateStore.latest();
-    if (state.valid) publishRobotState(state);
+    if(state.valid) {
+        publishRobotState(state);
+        m_lastV2ReportedRobotState=state;
+        m_haveV2ReportedRobotState=true;
+        m_v2RobotGate.allow(steadyNowNs(),true);
+    }
 }
 
 void RelayRuntime::handleV2Command(const QJsonObject& object, qint64 receivedNs)
@@ -831,12 +841,34 @@ void RelayRuntime::readFeedback()
         emitFeedbackErrorLimited(error);
     }
     for (const RobotStateSnapshot& state : result.states) {
+        // Preserve EVERY feedback frame in the internal state store.
+        // Limit ordinary 8891 pushes to 50Hz to keep status heartbeats
+        // responsive under 30004 bursts or camera processing load.
         m_stateStore.publish(state);
-        m_stateStaleTimer.start();
-        emit robotStateAvailable();
-        publishRobotState(state);
+        const bool urgent=!m_haveV2ReportedRobotState ||
+            state.errorStatus!=m_lastV2ReportedRobotState.errorStatus ||
+            state.enableStatus!=m_lastV2ReportedRobotState.enableStatus ||
+            state.dragStatus!=m_lastV2ReportedRobotState.dragStatus ||
+            state.jogStatus!=m_lastV2ReportedRobotState.jogStatus ||
+            state.pauseCmdFlag!=m_lastV2ReportedRobotState.pauseCmdFlag ||
+            state.robotMode!=m_lastV2ReportedRobotState.robotMode ||
+            state.runningStatus!=m_lastV2ReportedRobotState.runningStatus ||
+            state.user!=m_lastV2ReportedRobotState.user ||
+            state.tool!=m_lastV2ReportedRobotState.tool;
+        if(m_v2Client && m_v2Handshaken && m_pushRobotState) {
+            if(m_v2RobotGate.allow(steadyNowNs(),urgent)) {
+                publishRobotState(state);
+                m_lastV2ReportedRobotState=state;
+                m_haveV2ReportedRobotState=true;
+            } else {
+                ++m_diagnostics.v2StateRateLimited;
+            }
+        }
     }
     if (!result.states.isEmpty()) {
+        m_stateStaleTimer.start();
+        if(m_relayUiStateGate.allow(steadyNowNs()))
+            emit robotStateAvailable();
         const bool ready = relayReady(relayStatusInput());
         if (ready != m_lastReady) {
             publishRelayStatus();
@@ -910,6 +942,7 @@ QJsonObject RelayRuntime::enrichedRelayStatus() const
     status.insert(QStringLiteral("v2_received_frames"),
                   QString::number(m_diagnostics.v2ReceivedFrames));
     status.insert(QStringLiteral("v2_sent_frames"), QString::number(m_diagnostics.v2SentFrames));
+    status.insert(QStringLiteral("v2_state_rate_limited"), QString::number(m_diagnostics.v2StateRateLimited));
     status.insert(QStringLiteral("v2_state_overwrites"),
                   QString::number(m_diagnostics.v2StateOverwrites));
     status.insert(QStringLiteral("v2_send_rejects"),
