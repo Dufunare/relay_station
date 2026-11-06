@@ -110,7 +110,13 @@ RelayRuntime::~RelayRuntime()
 
 void RelayRuntime::configureRobotSocket(QTcpSocket* socket, int port)
 {
-    connect(socket, &QTcpSocket::connected, this, [this, port] {
+    connect(socket, &QTcpSocket::connected, this, [this, port, socket] {
+        // 33Hz ServoP is composed of short, time-sensitive writes. The legacy
+        // 8888/v2 sockets already use TCP_NODELAY; extend the same policy to
+        // the robot-facing 30003 socket to avoid Nagle/delayed-ACK batching.
+        // This does not change motion limits, scheduling or forwarding rules.
+        if (port == kMotionPort)
+            socket->setSocketOption(QAbstractSocket::LowDelayOption, 1);
         if (port == kFeedbackPort) {
             m_feedbackParser.connected();
             m_stateStore.invalidate(m_feedbackParser.connectionGeneration());
